@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Divine Chat</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <section id="hero" class="hero">
+      <h1 class="title">Welcome to Divine Chat</h1>
+      <p class="subtitle">Private rooms & Global chat</p>
+
+      <div class="cta vertical">
+        <button id="btnCreate" class="btn main">Create Room</button>
+        <button id="btnJoin" class="btn main">Join Room</button>
+        <button id="btnGlobal" class="btn main">Global Chat</button>
+        <button id="btnSettings" class="btn main outline">Settings</button>
+      </div>
+    </section>
+
+    <!-- Forms and Chat -->
+    <section id="pane" class="pane hidden">
+      <div class="chat-header">
+        <h2 id="chatTitle" class="chat-title">Private Chat</h2>
+        <div class="chat-actions-row">
+          <button id="btnClear" class="btn action gold" title="Host only — Ctrl+Alt+C">Clear Chat</button>
+          <button id="btnLeave" class="btn action muted">Leave Room</button>
+        </div>
+      </div>
+
+      <div class="main-grid">
+        <aside class="sidebar">
+          <h3>Users</h3>
+          <ul id="userList" class="user-list"></ul>
+        </aside>
+
+        <section class="chat">
+          <div id="messages" class="messages"></div>
+          <form id="msgForm" class="msgForm">
+            <input id="msgInput" autocomplete="off" placeholder="Type a message..." maxlength="2000" />
+            <button class="btn send gold">Send</button>
+          </form>
+        </section>
+      </div>
+    </section>
+
+    <!-- Modal (used for create, join, settings) -->
+    <div id="modal" class="modal hidden">
+      <div class="modal-card">
+        <button id="modalClose" class="modal-close">✕</button>
+
+        <div id="createForm" class="form hidden">
+          <h2>Create Room</h2>
+          <label>Username <input id="createUsername" /></label>
+          <label>Code <input id="createCode" /></label>
+          <label>Password (optional) <input id="createPassword" type="password" /></label>
+          <label>Max Users (optional) <input id="createMax" type="number" min="2" max="200" placeholder="Leave blank for default 10" /></label>
+          <label class="toggle-row">
+            <input id="createSafe" type="checkbox" checked />
+            <span>Create safe room?</span>
+          </label>
+          <div class="modal-actions">
+            <button id="createSubmit" class="btn gold">Create</button>
+            <button id="createCancel" class="btn muted">Cancel</button>
+          </div>
+        </div>
+
+        <div id="joinForm" class="form hidden">
+          <h2>Join Room</h2>
+          <label>Username <input id="joinUsername" /></label>
+          <label>Code <input id="joinCode" /></label>
+          <label>Password (if required) <input id="joinPassword" type="password" /></label>
+          <div class="modal-actions">
+            <button id="joinSubmit" class="btn purple">Join</button>
+            <button id="joinCancel" class="btn muted">Cancel</button>
+          </div>
+        </div>
+
+        <div id="settingsForm" class="form hidden">
+          <h2>Settings</h2>
+          <div class="setting">
+            <label>Theme</label>
+            <div class="segmented">
+              <button id="themeDark" class="seg-btn active">Dark</button>
+              <button id="themeLight" class="seg-btn">Light</button>
+            </div>
+          </div>
+
+          <div class="setting">
+            <label>Clear shortcut</label>
+            <label class="toggle-row">
+              <input id="toggleShortcut" type="checkbox" checked />
+              <span>Enable Ctrl+Alt+C</span>
+            </label>
+          </div>
+
+          <div class="modal-actions">
+            <button id="settingsClose" class="btn muted">Done</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/main.js"></script>
+</body>
+</html>
