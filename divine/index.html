@@ -7,6 +7,15 @@
   <link rel="icon" href="assets/divine-fav.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
+  <script>
+(function(){
+  var has = document.cookie.split(';').some(function(c){return c.trim().indexOf('divine_access=')===0});
+  var p = location.pathname.replace(/\/+$/,'');
+  var access = '/divine';
+  var isAccessPage = (p === access || p === access + '/index.html');
+  if (!has && !isAccessPage) location.href = access + '/';
+})();
+  </script>
 <body>
   <!-- Announcement banner: full-width, sticky -->
   <div class="announcement" role="banner" aria-live="polite">
