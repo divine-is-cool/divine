@@ -7,99 +7,153 @@
 <style>
   :root{--bg:#071428;--card:#16212b;--panel:#1e2a34;--muted:#97a6b3;--input:#0f1720;--cta:#3fc3ff;--white:#ffffff;--success:#2ecc71}
   html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg);display:flex;align-items:center;justify-content:center}
-  .card{width:820px;max-width:92%;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:18px;padding:56px 64px;box-shadow:0 18px 50px rgba(3,9,18,0.7);border:1px solid rgba(255,255,255,0.03)}
+  .card{width:820px;max-width:92%;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:18px;padding:56px 64px;box-shadow:0 18px 50px rgba(3,9,18,0.7);border:1px solid rgba(255,255,255,0.02)}
   h1{margin:0;font-size:44px;color:var(--white);text-align:center;font-weight:800;letter-spacing:0.2px}
   p.lead{margin:18px 0 34px;text-align:center;color:var(--muted);font-size:20px}
   .form{display:flex;flex-direction:column;gap:22px;align-items:stretch}
-  input[type="password"]{background:var(--input);border:1px solid rgba(255,255,255,0.03);padding:18px 20px;border-radius:12px;color:#cbd5e1;font-size:18px;outline:none;box-shadow:inset 0 1px 0 rgba(255,255,255,0.02)}
+  input[type="password"]{background:var(--input);border:1px solid rgba(255,255,255,0.03);padding:18px 20px;border-radius:12px;color:#cbd5e1;font-size:18px;outline:none;box-shadow:inset 0 1px 0 rgba(25,35,40,0.2)}
   input[type="password"]::placeholder{color:#26343b}
-  button.enter{background:var(--cta);border:none;padding:18px;border-radius:12px;color:var(--white);font-weight:800;font-size:20px;cursor:pointer;box-shadow:0 10px 30px rgba(63,195,255,0.18);transition:transform .12s ease}
+  button.enter{background:var(--cta);border:none;padding:18px;border-radius:12px;color:var(--white);font-weight:800;font-size:20px;cursor:pointer;box-shadow:0 10px 30px rgba(63,195,255,0.18);transition:transform .08s ease}
   button.enter:active{transform:translateY(1px)}
   .msg{height:26px;text-align:center;margin-top:4px;font-weight:700}
   .msg.error{color:#ff6b6b}
   .msg.success{color:var(--success)}
   @media (max-width:520px){ .card{padding:30px 20px} h1{font-size:28px} p.lead{font-size:15px} input[type="password"],button.enter{font-size:16px;padding:14px} }
 </style>
+
+<!-- Load build-generated env file (written during the build). If missing, window.__AUTH_PASSWORD__ will be undefined. -->
+<script src="/env.js"></script>
 </head>
 <body>
   <div class="card" role="main" aria-labelledby="t">
     <h1 id="t">Restricted Access</h1>
     <p class="lead">Please enter the password to continue.</p>
     <div class="form" aria-live="polite">
-      <input id="pw" type="password" placeholder="Password" autocomplete="off" />
+      <input id="pw" type="password" placeholder="Password" autocomplete="off" aria-label="Password" />
       <button id="go" class="enter">Enter</button>
       <div id="msg" class="msg" aria-atomic="true"></div>
     </div>
   </div>
 
 <script>
-/* set window.__AUTH_PASSWORD__ at build-time (or replace AUTH_PASSWORD_VALUE) */
-const AUTH = window.__AUTH_PASSWORD__ || "AUTH_PASSWORD_VALUE";
-const COOKIE_NAME = "divine_access";
-const COOKIE_PATH = "/divine";
-const COOKIE_YEARS = 10;
-const LOCK_KEY = "divine_lock_until";
+/*
+  Client-side password gate for a static site (no backend).
+  - Write env.js at build time so window.__AUTH_PASSWORD__ is available.
+  - Shows "Wrong Password" on wrong entries.
+  - Only locks starting on the 3rd failed attempt (locks for LOCK_SECONDS).
+*/
 
-const pw = document.getElementById("pw");
-const btn = document.getElementById("go");
-const msg = document.getElementById("msg");
+(function(){
+  const COOKIE_NAME = "divine_access";
+  const COOKIE_PATH = "/divine";
+  const COOKIE_YEARS = 10;
 
-function setCookie() {
-  const exp = new Date();
-  exp.setFullYear(exp.getFullYear() + COOKIE_YEARS);
-  document.cookie = COOKIE_NAME + "=1; path=" + COOKIE_PATH + "; expires=" + exp.toUTCString() + "; SameSite=Strict";
-}
+  const LOCK_KEY = "divine_lock_until";
+  const FAIL_KEY = "divine_failed_attempts";
+  const LOCK_SECONDS = 60; // lock duration when triggered (3rd failed attempt onwards)
 
-function redirectHome() {
-  window.location.href = COOKIE_PATH + "/";
-}
+  // AUTH should be set by build-generated env.js: window.__AUTH_PASSWORD__ = '...';
+  const AUTH = (typeof window !== "undefined" && window.__AUTH_PASSWORD__ !== undefined) ? window.__AUTH_PASSWORD__ : "AUTH_PASSWORD_VALUE";
 
-function lockFor(seconds) {
-  const until = Date.now() + seconds * 1000;
-  localStorage.setItem(LOCK_KEY, String(until));
+  const pw = document.getElementById("pw");
+  const btn = document.getElementById("go");
+  const msg = document.getElementById("msg");
+
+  function setCookie() {
+    const exp = new Date();
+    exp.setFullYear(exp.getFullYear() + COOKIE_YEARS);
+    document.cookie = COOKIE_NAME + "=1; path=" + COOKIE_PATH + "; expires=" + exp.toUTCString() + "; SameSite=Strict";
+  }
+
+  function redirectHome() {
+    window.location.href = COOKIE_PATH + "/";
+  }
+
+  function lockFor(seconds) {
+    const until = Date.now() + seconds * 1000;
+    localStorage.setItem(LOCK_KEY, String(until));
+    updateLock();
+  }
+
+  function updateLock() {
+    const until = parseInt(localStorage.getItem(LOCK_KEY) || "0", 10);
+    if (Date.now() < until) {
+      const rem = Math.ceil((until - Date.now()) / 1000);
+      pw.disabled = true;
+      btn.disabled = true;
+      msg.textContent = "Too many failed attempts. Try again in " + rem + "s.";
+      msg.className = "msg error";
+      setTimeout(updateLock, 500);
+    } else {
+      pw.disabled = false;
+      btn.disabled = false;
+      // Clears lock message only if not showing another message
+      if (!pw.value) {
+        msg.textContent = "";
+        msg.className = "msg";
+      }
+      localStorage.removeItem(LOCK_KEY);
+    }
+  }
+
+  function getFailedAttempts() {
+    return parseInt(localStorage.getItem(FAIL_KEY) || "0", 10);
+  }
+
+  function setFailedAttempts(n) {
+    localStorage.setItem(FAIL_KEY, String(n));
+  }
+
+  function resetFailedAttempts() {
+    localStorage.removeItem(FAIL_KEY);
+  }
+
+  function checkPassword(input) {
+    if (!input) {
+      msg.textContent = "Please enter the password.";
+      msg.className = "msg error";
+      return;
+    }
+
+    // If build-time env not set, AUTH will be the placeholder and we should not grant access.
+    if (AUTH === "AUTH_PASSWORD_VALUE" || typeof AUTH !== "string") {
+      console.warn("Auth password not provided (env.js missing or not set). Access will always be denied.");
+    }
+
+    if (AUTH !== "AUTH_PASSWORD_VALUE" && input === AUTH) {
+      // success
+      setCookie();
+      resetFailedAttempts();
+      localStorage.removeItem(LOCK_KEY);
+      msg.textContent = "Access Granted! Redirecting...";
+      msg.className = "msg success";
+      setTimeout(redirectHome, 700);
+      return;
+    }
+
+    // Wrong password path
+    const prev = getFailedAttempts();
+    const nowAttempts = prev + 1;
+    setFailedAttempts(nowAttempts);
+
+    // Always say "Wrong Password" for wrong attempts
+    if (nowAttempts < 3) {
+      msg.textContent = "Wrong Password";
+      msg.className = "msg error";
+      // do not lock yet
+    } else {
+      // On 3rd and onward, lock
+      msg.textContent = "Wrong Password. Too many failed attempts. Locked for " + LOCK_SECONDS + "s.";
+      msg.className = "msg error";
+      lockFor(LOCK_SECONDS);
+    }
+  }
+
+  btn.addEventListener("click", () => checkPassword(pw.value.trim()));
+  pw.addEventListener("keyup", (e) => { if (e.key === "Enter") checkPassword(pw.value.trim()); });
+
   updateLock();
-}
-
-function updateLock() {
-  const until = parseInt(localStorage.getItem(LOCK_KEY) || "0", 10);
-  if (Date.now() < until) {
-    const rem = Math.ceil((until - Date.now()) / 1000);
-    pw.disabled = true;
-    btn.disabled = true;
-    msg.textContent = "Too many failed attempts. Try again in " + rem + "s.";
-    msg.className = "msg error";
-    setTimeout(updateLock, 500);
-  } else {
-    pw.disabled = false;
-    btn.disabled = false;
-    msg.textContent = "";
-    msg.className = "msg";
-    localStorage.removeItem(LOCK_KEY);
-  }
-}
-
-function checkPassword(input) {
-  if (!input) {
-    msg.textContent = "Please enter the password.";
-    msg.className = "msg error";
-    return;
-  }
-  if (input === AUTH) {
-    setCookie();
-    msg.textContent = "Access Granted! Redirecting...";
-    msg.className = "msg success";
-    setTimeout(redirectHome, 700);
-  } else {
-    msg.textContent = "Incorrect password.";
-    msg.className = "msg error";
-    lockFor(60);
-  }
-}
-
-btn.addEventListener("click", ()=> checkPassword(pw.value.trim()));
-pw.addEventListener("keyup", (e)=> { if(e.key === "Enter") checkPassword(pw.value.trim()); });
-
-updateLock();
+})();
 </script>
 </body>
 </html>
