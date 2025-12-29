@@ -56,7 +56,7 @@
 
   const LOCK_KEY = "divine_lock_until";
   const FAIL_KEY = "divine_failed_attempts";
-  const LOCK_SECONDS = 60; // lock duration when triggered (3rd failed attempt onwards)
+  const LOCK_SECONDS = 300; // lock duration when triggered (3rd failed attempt onwards)
 
   // AUTH should be set by build-generated env.js: window.__AUTH_PASSWORD__ = '...';
   const AUTH = (typeof window !== "undefined" && window.__AUTH_PASSWORD__ !== undefined) ? window.__AUTH_PASSWORD__ : "AUTH_PASSWORD_VALUE";
