@@ -4,7 +4,22 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Divine Chat</title>
-
+  
+  <script>
+  (function(){
+    try {
+      var has = document.cookie.split(';').some(function(c){ return c.trim().indexOf('divine_access=') === 0; });
+    } catch (e) {
+      // if document.cookie access throws for any reason, treat as no cookie
+      var has = false;
+    }
+    if (!has) {
+      // Replace so the unauthorized page doesn't remain in history
+      location.replace('/404.html' + location.search + location.hash);
+    }
+  })();
+  </script>
+  
   <style>
     body {
       margin: 0;
