@@ -47,6 +47,8 @@
   - Write env.js at build time so window.__AUTH_PASSWORD__ is available.
   - Shows "Wrong Password" on wrong entries.
   - Only locks starting on the 3rd failed attempt (locks for LOCK_SECONDS).
+
+  Update: If the site is in "lockdown" (as signaled by the admin panel), deny access even for the correct password and do NOT set the access cookie.
 */
 
 (function(){
@@ -57,6 +59,30 @@
   const LOCK_KEY = "divine_lock_until";
   const FAIL_KEY = "divine_failed_attempts";
   const LOCK_SECONDS = 300; // lock duration when triggered (3rd failed attempt onwards)
+
+  // Admin panel lockdown integration
+  const PANEL_HOST = "https://dv-panel.giize.com";
+  const STATE_URL = PANEL_HOST + "/api/state";
+  const LOCKDOWN_KEY = "divine.panel.lockdown"; // "1" (enabled) | "0" (disabled)
+
+  function setLockdownFlag(enabled) {
+    try { localStorage.setItem(LOCKDOWN_KEY, enabled ? "1" : "0"); } catch (e) {}
+  }
+
+  function isLockdownEnabled() {
+    try { return localStorage.getItem(LOCKDOWN_KEY) === "1"; } catch (e) { return false; }
+  }
+
+  async function refreshLockdownFlag() {
+    try {
+      const res = await fetch(STATE_URL, { cache: "no-store" });
+      const json = await res.json();
+      if (!json || !json.ok) return;
+      setLockdownFlag(Boolean(json.lockdown && json.lockdown.enabled));
+    } catch (e) {
+      // If offline / panel unreachable, keep last-known value
+    }
+  }
 
   // AUTH should be set by build-generated env.js: window.__AUTH_PASSWORD__ = '...';
   const AUTH = (typeof window !== "undefined" && window.__AUTH_PASSWORD__ !== undefined) ? window.__AUTH_PASSWORD__ : "AUTH_PASSWORD_VALUE";
@@ -126,6 +152,13 @@
       console.warn("Auth password not provided (env.js missing or not set). Access will always be denied.");
     }
 
+    // If lockdown is enabled, always deny and do not set cookie.
+    if (isLockdownEnabled()) {
+      msg.textContent = "Access Denied";
+      msg.className = "msg error";
+      return;
+    }
+
     if (AUTH !== "AUTH_PASSWORD_VALUE" && input === AUTH) {
       // success
       setCookie();
@@ -154,6 +187,12 @@
       lockFor(LOCK_SECONDS);
     }
   }
+
+  // Keep lockdown flag reasonably fresh:
+  // - refresh on page load
+  // - refresh again when the tab regains focus (optional)
+  refreshLockdownFlag();
+  window.addEventListener("focus", refreshLockdownFlag);
 
   btn.addEventListener("click", () => checkPassword(pw.value.trim()));
   pw.addEventListener("keyup", (e) => { if (e.key === "Enter") checkPassword(pw.value.trim()); });
@@ -233,6 +272,13 @@
     }
 
     yes.addEventListener("click", function(){
+      // If lockdown is enabled, deny even if cookie exists.
+      if (isLockdownEnabled()) {
+        msg.textContent = "Access Denied";
+        msg.className = "msg error";
+        closeModal();
+        return;
+      }
       window.location.href = COOKIE_PATH;
     });
 
