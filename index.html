@@ -23,9 +23,6 @@
   .disclaimer a { color:inherit; text-decoration:underline; }
   @media (max-width:520px){ .card{padding:30px 20px} h1{font-size:28px} p.lead{font-size:15px} input[type="password"],button.enter{font-size:16px;padding:14px} .disclaimer{font-size:0.9rem} }
 </style>
-
-<!-- Load build-generated env file (written during the build). If missing, window.__AUTH_PASSWORD__ will be undefined. -->
-<script src="/env.js"></script>
 </head>
 <body>
   <div class="card" role="main" aria-labelledby="t">
@@ -44,31 +41,48 @@
 
 <script>
 /*
-  Client-side password gate for a static site (no backend).
-  - Write env.js at build time so window.__AUTH_PASSWORD__ is available.
-  - Shows "Wrong Password" on wrong entries.
-  - Only locks starting on the 3rd failed attempt (locks for LOCK_SECONDS).
-
-  Update: If the site is in "lockdown" (as signaled by the admin panel), deny access even for the correct password and do NOT set the access cookie.
-
-  Fix: Do NOT rely on a potentially stale localStorage flag for lockdown decisions.
-       We still cache the flag, but we also fetch live state right before granting access
-       (password success path + "already have access" modal "Yes" path).
+  Server-validated access gate (static site obeys panel authority).
+  - Static site DOES NOT store, fetch, or validate the real PIN.
+  - User enters a PIN attempt; we POST it to the panel (/api/auth).
+  - Panel validates against its server-side env and returns { allowed: true/false }.
+  - We keep the existing UX:
+      • "Wrong Password" messaging
+      • lockout after 3 failed attempts (client-side throttle)
+      • deny during site-lockdown (from panel /api/state)
 */
 
 (function(){
   const COOKIE_NAME = "divine_access";
   const COOKIE_PATH = "/divine";
-  const COOKIE_DAYS = 10; // cookie expires after 10 days
+  const COOKIE_DAYS = 10;
 
   const LOCK_KEY = "divine_lock_until";
   const FAIL_KEY = "divine_failed_attempts";
-  const LOCK_SECONDS = 300; // lock duration when triggered (3rd failed attempt onwards)
+  const LOCK_SECONDS = 300;
 
-  // Admin panel lockdown integration (REAL HOST)
+  // Panel host (single authority)
   const PANEL_HOST = "https://dv-panel-app.sirco.online";
   const STATE_URL = PANEL_HOST + "/api/state";
-  const LOCKDOWN_KEY = "divine.panel.lockdown"; // "1" (enabled) | "0" (disabled)
+  const AUTH_URL = PANEL_HOST + "/api/auth";
+
+  const LOCKDOWN_KEY = "divine.panel.lockdown"; // cache "1" | "0"
+  const CLIENT_ID_KEY = "divine.clientID";
+
+  function ensureClientID(){
+    try {
+      const existing = localStorage.getItem(CLIENT_ID_KEY);
+      if (existing && typeof existing === "string" && existing.trim()) return existing.trim();
+    } catch (e) {}
+
+    let id = "";
+    try {
+      if (crypto && typeof crypto.randomUUID === "function") id = crypto.randomUUID();
+    } catch (e) {}
+    if (!id) id = "cid-" + Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
+
+    try { localStorage.setItem(CLIENT_ID_KEY, id); } catch (e) {}
+    return id;
+  }
 
   function setLockdownFlag(enabled) {
     try { localStorage.setItem(LOCKDOWN_KEY, enabled ? "1" : "0"); } catch (e) {}
@@ -78,20 +92,19 @@
     try { return localStorage.getItem(LOCKDOWN_KEY) === "1"; } catch (e) { return false; }
   }
 
-  // Robustly interpret various possible API shapes.
   function parseLockdownEnabledFromState(json) {
     try {
       if (!json) return false;
 
-      // Most likely: { ok: true, lockdown: { enabled: true } }
       if (json.lockdown && typeof json.lockdown.enabled === "boolean") return Boolean(json.lockdown.enabled);
 
-      // Alternative shapes (defensive)
       if (typeof json.lockdown === "boolean") return json.lockdown;
       if (typeof json.lockdown === "number") return json.lockdown !== 0;
       if (typeof json.lockdown === "string") return ["1","true","yes","on","enabled"].includes(json.lockdown.toLowerCase());
 
-      if (json.state && json.state.lockdown && typeof json.state.lockdown.enabled === "boolean") return Boolean(json.state.lockdown.enabled);
+      if (json.state && json.state.lockdown && typeof json.state.lockdown.enabled === "boolean") {
+        return Boolean(json.state.lockdown.enabled);
+      }
 
       return false;
     } catch (e) {
@@ -103,24 +116,19 @@
     try {
       const res = await fetch(STATE_URL, { cache: "no-store" });
       const json = await res.json();
-      if (!json || !json.ok) return null; // unknown
+      if (!json || !json.ok) return null;
       const enabled = parseLockdownEnabledFromState(json);
       setLockdownFlag(enabled);
       return enabled;
     } catch (e) {
-      return null; // unknown (offline / blocked / panel unreachable)
+      return null;
     }
   }
 
-  // Refresh cached lockdown on load/focus (best-effort)
   async function refreshLockdownFlag() {
     const enabled = await fetchLockdownEnabledLive();
-    // if enabled is null, keep last-known cache
     return enabled;
   }
-
-  // AUTH should be set by build-generated env.js: window.__AUTH_PASSWORD__ = '...';
-  const AUTH = (typeof window !== "undefined" && window.__AUTH_PASSWORD__ !== undefined) ? window.__AUTH_PASSWORD__ : "AUTH_PASSWORD_VALUE";
 
   const pw = document.getElementById("pw");
   const btn = document.getElementById("go");
@@ -134,7 +142,6 @@
   }
 
   function setCookie() {
-    // Set cookie to expire COOKIE_DAYS from now.
     const exp = new Date(Date.now() + COOKIE_DAYS * 24 * 60 * 60 * 1000);
     document.cookie = COOKIE_NAME + "=1; path=" + COOKIE_PATH + "; expires=" + exp.toUTCString() + "; SameSite=Strict";
   }
@@ -161,7 +168,6 @@
     } else {
       pw.disabled = false;
       btn.disabled = false;
-      // Clears lock message only if not showing another message
       if (!pw.value) {
         msg.textContent = "";
         msg.className = "msg";
@@ -183,7 +189,6 @@
   }
 
   async function denyIfLockdownLiveOrCached() {
-    // Live check first (best effort). If unknown, fall back to cached value.
     const live = await fetchLockdownEnabledLive();
     const enabled = (live === null) ? isLockdownEnabledCached() : live;
 
@@ -195,6 +200,20 @@
     return false;
   }
 
+  async function validatePinServerSide(pinAttempt) {
+    const clientID = ensureClientID();
+
+    const res = await fetch(AUTH_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientID, pinAttempt })
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json || !json.ok) return false;
+    return json.allowed === true;
+  }
+
   async function checkPassword(input) {
     if (!input) {
       msg.textContent = "Please enter the password.";
@@ -202,19 +221,13 @@
       return;
     }
 
-    // If build-time env not set, AUTH will be the placeholder and we should not grant access.
-    if (AUTH === "AUTH_PASSWORD_VALUE" || typeof AUTH !== "string") {
-      console.warn("Auth password not provided (env.js missing or not set). Access will always be denied.");
-    }
-
     setBusy(true);
     try {
-      // IMPORTANT: enforce lockdown live (or cached fallback) at submit time
       const denied = await denyIfLockdownLiveOrCached();
       if (denied) return;
 
-      if (AUTH !== "AUTH_PASSWORD_VALUE" && input === AUTH) {
-        // success
+      const allowed = await validatePinServerSide(input);
+      if (allowed) {
         setCookie();
         resetFailedAttempts();
         localStorage.removeItem(LOCK_KEY);
@@ -224,32 +237,29 @@
         return;
       }
 
-      // Wrong password path
+      // Wrong PIN attempt path
       const prev = getFailedAttempts();
       const nowAttempts = prev + 1;
       setFailedAttempts(nowAttempts);
 
-      // Always say "Wrong Password" for wrong attempts
       if (nowAttempts < 3) {
         msg.textContent = "Wrong Password";
         msg.className = "msg error";
-        // do not lock yet
       } else {
-        // On 3rd and onward, lock
         msg.textContent = "Wrong Password. Too many failed attempts. Locked for " + LOCK_SECONDS + "s.";
         msg.className = "msg error";
         lockFor(LOCK_SECONDS);
       }
+    } catch (e) {
+      msg.textContent = "Request failed";
+      msg.className = "msg error";
     } finally {
-      // Don't re-enable if currently locked by failed-attempt timer.
       const until = parseInt(localStorage.getItem(LOCK_KEY) || "0", 10);
       if (!(Date.now() < until)) setBusy(false);
     }
   }
 
-  // Keep lockdown flag reasonably fresh:
-  // - refresh on page load
-  // - refresh again when the tab regains focus (optional)
+  // Keep lockdown flag reasonably fresh
   refreshLockdownFlag();
   window.addEventListener("focus", refreshLockdownFlag);
 
@@ -331,7 +341,6 @@
     }
 
     yes.addEventListener("click", async function(){
-      // IMPORTANT: check lockdown LIVE (or cached fallback) before allowing continue.
       setBusy(true);
       try {
         const denied = await denyIfLockdownLiveOrCached();
@@ -339,7 +348,6 @@
         if (denied) return;
         window.location.href = COOKIE_PATH;
       } finally {
-        // Don't re-enable if currently locked by failed-attempt timer.
         const until = parseInt(localStorage.getItem(LOCK_KEY) || "0", 10);
         if (!(Date.now() < until)) setBusy(false);
       }
