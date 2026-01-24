@@ -1,6 +1,6 @@
 # **Divine Universal Access & Use Agreement**
 
-**Last Updated:** [Insert Date]
+**Last Updated:** [1/24/25]
 
 ## **1. Scope of This Agreement**  
 This Agreement governs all access to and use of the website, platform, services, applications, tools, features, source code, and any related materials (“Services”).  
